@@ -1,107 +1,120 @@
 # Atlas ⚡
 
-> **A distributed compute runtime for machine learning and data processing.**
+> **An open-source distributed runtime for machine learning and data engineering.**
 
 ![C++](https://img.shields.io/badge/C++-20-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10+-yellow.svg)
 ![Architecture](https://img.shields.io/badge/Architecture-Distributed_Systems-success.svg)
-![Build](https://img.shields.io/badge/build-passing-brightgreen)
+![Status](https://img.shields.io/badge/Status-Active_Development-orange.svg)
 
-## 📌 Philosophy
+## 📌 What is Atlas?
 
-Atlas is built around a simple philosophy: **distributed systems should be understandable, inspectable, and extensible.** 
+**Atlas** simplifies distributed training, ETL pipelines, and large-scale compute by providing scheduling, execution, fault tolerance, and observability in a single modular platform. 
 
-Instead of hiding scheduling, execution, memory, and networking behind opaque frameworks, Atlas exposes these mechanisms as first-class components. It is designed to be studied, modified, and benchmarked. Atlas implements performance-critical infrastructure components—such as task scheduling, memory allocation, and execution graphs—from first principles to explore their design trade-offs, while leveraging the C++ standard library where it provides robust, well-tested abstractions.
+Today, scaling a machine learning pipeline or big data workload requires stitching together a brittle stack of disparate frameworks (Ray, Celery, Kubernetes, Redis, Spark). Atlas solves this by providing a unified, high-performance execution engine written entirely in modern C++20, controlled via a seamless and intuitive Python SDK.
 
-It executes workloads across clusters by exposing the core primitives behind production systems like Ray, Spark, Dask, Borg, and Photon.
+**The philosophy is simple:** Performance is won in C++ memory layouts and cache locality. Developer adoption is won through a clean Python API.
 
-## 🧭 Design Principles
+```bash
+# How Atlas is designed to work:
+pip install atlas-runtime
 
-*   **Performance First:** Performance-critical paths are implemented in modern C++20 with custom allocators, minimal dynamic allocation, and cache-friendly data structures.
-*   **Explicit over Implicit:** Scheduling, execution, networking, and storage remain visible and highly configurable to the user.
-*   **Modular Architecture:** Every subsystem (scheduler, allocator, executor) is decoupled and can be replaced independently.
-*   **Scalability:** The exact same runtime topology should execute locally on a single laptop or distributed across a hundred nodes.
-*   **Observability:** Every important decision made by Atlas (scheduling latency, queue depths, cache hits) is exposed as measurable telemetry.
-
-## 🏗️ System Architecture
-
-Atlas flips the traditional Python-heavy ML stack. Python serves strictly as the control plane and SDK glue, while the high-performance C++ runtime owns all execution, memory, networking, and scheduling.
-
-```text
-              [ CLI ] (atlas submit, atlas status, atlas metrics)
-                 │
-                 ▼
-       [ Job Submission API ]
-                 │
-                 ▼
-      [ Scheduler Service ] (Python / Control Plane)
-                 │
- ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-                 │
-        [ Worker Discovery ]
-        [ Leader Election ]
-        [ Task Queue & DAG Engine ]
-        [ Resource Manager ]
-                 │
- ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-                 ▼
-       [ C++ Runtime Engine ] (The Core)
-                 │
-      ┌──────────┼──────────┬──────────┬──────────┐
-      ▼          ▼          ▼          ▼          ▼
-[ Thread Pool] [Memory] [Executor] [Network]  [Storage]
- (Stealing)    (Arena)    (DAG)     (gRPC)    (AtlasFS)
+atlas run train.py --cluster=local
 
 ```
 
+## 🏗️ System Architecture
+
+Atlas draws heavy architectural inspiration from systems like PyTorch, Apache Arrow, and Databricks Photon. The codebase maintains a strict boundary: **Python handles the API layer; C++ owns all execution, memory, and networking.**
+
+```text
+               [ CLI / Python SDK ] 
+            (atlas run, atlas metrics)
+                      │
+                      ▼
+ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+                      ▼
+             [ C++ Scheduler & DAG ]
+           (Dependency Parsing, Retries)
+                      │
+ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┼┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+                      ▼
+            [ C++ Execution Engine ]
+                      │
+      ┌───────────────┼───────────────┬───────────────┐
+      ▼               ▼               ▼               ▼
+[ Thread Pool ]   [ Memory ]     [ Network ]     [ Storage ]
+ (Work Stealing)   (Arena/Slab)    (gRPC/TCP)     (Dataset API)
+                      │
+      ┌───────────────┴───────────────┐
+      ▼                               ▼
+[ PyTorch Plugin ]              [ Custom C++ Tasks ]
+
+```
+
+## ⚙️ Core Engineering Primitives
+
+Atlas strictly avoids "magic" code. Core infrastructure components are built from first principles to explore the depths of performance engineering, leveraging the C++ standard library only where it provides robust abstractions.
+
+* **Concurrency:** Custom work-stealing thread pool supporting task dependency graphs and asynchronous futures.
+* **Memory Management:** Custom allocators (Arena, Slab, Object Pools) designed to bypass standard `malloc()` overhead during high-throughput data processing.
+* **Execution Engine:** Dependency-aware DAG executor handling complex dataflow topologies.
+* **Networking & RPC:** High-throughput TCP/gRPC layer utilizing binary serialization for zero-copy data transfers between nodes.
+* **Distributed Consensus:** Heartbeat monitoring, node discovery, task queues, and automated failure recovery.
+
 ## 🗄️ Project Structure
 
-Atlas is maintained with the engineering rigor of a production infrastructure product. Documentation, architecture decision records (ADRs), and research are treated as first-class citizens alongside the codebase.
+This project is maintained with the engineering rigor of a production infrastructure product.
 
 ```bash
 [github.com/TechieSamosa/atlas](https://github.com/TechieSamosa/atlas)
 ├── runtime/                 # Modern C++ execution engine (allocators, thread pools)
 ├── scheduler/               # Distributed scheduling logic and DAG parsing
 ├── networking/              # RPC, transport layer, and binary serialization
-├── storage/                 # Dataset abstractions (AtlasFS - Planned)
-├── python-sdk/              # User-facing Python API and control plane glue
-├── cli/                     # Command Line Interface (atlas submit, logs, metrics)
-├── benchmarks/              # Throughput, latency, and scalability tests
+├── storage/                 # Distributed dataset abstractions
+├── python-sdk/              # User-facing Python API and SDK logic
+├── cli/                     # Command Line Interface (atlas run, cluster up)
+├── benchmarks/              # Microbenchmarks (latency, throughput, cache misses)
 ├── docs/
 │   ├── ADRs/                # Architecture Decision Records (e.g., ADR-0001-Why-CPP20.md)
 │   ├── HLD/                 # High-Level Design specs
 │   └── LLD/                 # Low-Level Design specs (e.g., lock-free queues)
 ├── research/                # Engineering papers, profiling reports, and design notes
-└── papers-we-implemented/   # Reference implementations of CS research papers
+└── papers-we-implemented/   # Reference implementations of relevant CS research
 
 ```
 
-## 🗺️ Project Status & Roadmap
+## 🗺️ Milestone Roadmap (v1.0 target)
 
-Atlas is currently in active development, scaling towards a stable `v1.0` release by 2027. We strictly avoid overpromising features; the list below reflects the actual state of the codebase.
+Atlas is currently under active development. The goal is not to build a bloated orchestration platform, but to deliver a focused, highly performant `v1.0` runtime.
 
-**Current Focus (In Active Development)**
+**Phase 1: The Engine Primitive**
 
-* [ ] **Runtime Core:** C++20 foundation, work-stealing thread pool, and arena allocators.
-* [ ] **Local Executor:** Dependency-aware DAG execution engine and asynchronous futures.
-* [ ] **Benchmarking Suite:** Microbenchmarks for memory allocators and task scheduling latency.
+* [ ] Implement C++20 foundation with CMake build system.
+* [ ] Build custom work-stealing thread pool and synchronization primitives.
+* [ ] Develop arena/slab allocators for task execution.
 
-**Planned (Future Architecture)**
+**Phase 2: The Local Runtime**
 
-* [ ] **Distributed Networking:** TCP/gRPC layer, binary serialization, zero-copy transfers.
-* [ ] **Consensus & Discovery:** Worker registration, heartbeats, and leader election.
-* [ ] **AtlasFS:** A lightweight distributed object store abstraction supporting chunking and checksums.
-* [ ] **Plugin Ecosystem:** PyTorch/XGBoost executors and CUDA runtime support.
+* [ ] Build the local DAG Executor for parsing task dependencies.
+* [ ] Implement asynchronous futures and task state management.
+* [ ] Develop the initial Python SDK bindings (via Pybind11).
 
-## 📊 Benchmarks & Observability
+**Phase 3: The Cluster Network**
 
-Atlas does not rely on web dashboards. It is built for infrastructure engineers, relying on CLI tooling and raw telemetry. We benchmark continuously against standard implementations:
+* [ ] Implement TCP/gRPC worker nodes and binary serialization.
+* [ ] Establish heartbeat monitoring, node discovery, and automatic fault recovery.
+* [ ] Finalize the `atlas` CLI for cluster deployment and observability.
 
-* *Sample Benchmark Focus:* Custom Arena Allocator vs. standard `malloc()` over 10 million allocations (measuring latency, throughput, and cache misses).
-* *Telemetry:* Exposes metrics on CPU/Memory utilization, task latency, scheduling latency, queue lengths, and worker uptime.
+## 🧪 Code Quality & Engineering Standards
 
+Atlas enforces three strict engineering rules before any code is merged:
+
+1. **No Magic:** Every critical subsystem is documented deeply.
+2. **Artifact-First:** Every PR must include the implementation, unit tests, and an updated Architecture Decision Record (ADR) justifying design tradeoffs.
+3. **Continuous Benchmarking:** All custom abstractions (e.g., arena allocator) are benchmarked against standard library equivalents using rigorous telemetry [1].
 
 ## 👨‍💻 Author
 
 **Aditya Khamitkar**
-[Portfolio](https://adityakhamitkar.vercel.app) | Systems Engineering & Distributed Compute
+[GitHub Profile](https://github.com/TechieSamosa) | [Portfolio](https://adityakhamitkar.vercel.app)
